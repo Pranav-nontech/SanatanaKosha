@@ -40,46 +40,27 @@ Deno.serve(async (req) => {
     // Step 1: Retrieve relevant context from database
     const context = await retrieveRelevantContext(supabaseClient, query);
 
-    if (context.sections.length === 0 && context.concepts.length === 0) {
-      const noDataResponse = {
-        response: 'This question has no direct authoritative basis in Sanātana śāstra within our current knowledge base. Please try rephrasing or ask about core concepts found in Vedas, Upaniṣads, Purāṇas, or Darśanas.',
-        citations: [],
-        mode,
-      };
+    const hasDbContext = context.sections.length > 0 || context.concepts.length > 0;
+    const source = hasDbContext ? 'database' : 'ai_training';
 
-      // Save to chat history
-      if (user) {
-        await supabaseClient.from('chat_messages').insert({
-          user_id: user.id,
-          query_mode: mode,
-          user_query: query,
-          bot_response: noDataResponse.response,
-          citations: [],
-          retrieved_sources: { sections: [], concepts: [] },
-        });
-      }
+    // Step 2: Build prompt (hybrid: database context OR AI knowledge fallback)
+    const prompt = buildPrompt(query, mode, context, hasDbContext);
 
-      return new Response(
-        JSON.stringify(noDataResponse),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Step 2: Build prompt with retrieved context
-    const prompt = buildPrompt(query, mode, context);
-
-    console.log(`[Shastra Chat] Retrieved ${context.sections.length} sections, ${context.concepts.length} concepts`);
+    console.log(`[Shastra Chat] Source: ${source}, Retrieved ${context.sections.length} sections, ${context.concepts.length} concepts`);
 
     // Step 3: Call OnSpace AI
     const aiResponse = await callOnSpaceAI(prompt);
 
-    // Step 4: Extract citations
+    // Step 4: Extract citations and add source indicator
     const citations = extractCitations(context);
+    const sourceIndicator = hasDbContext ? '🔹 **Source: Database**' : '🔸 **Source: AI Training**';
+    const responseWithSource = `${sourceIndicator}\n\n${aiResponse}`;
 
     const result = {
-      response: aiResponse,
+      response: responseWithSource,
       citations,
       mode,
+      source,
     };
 
     // Step 5: Save to chat history
@@ -88,9 +69,9 @@ Deno.serve(async (req) => {
         user_id: user.id,
         query_mode: mode,
         user_query: query,
-        bot_response: aiResponse,
+        bot_response: responseWithSource,
         citations,
-        retrieved_sources: context,
+        retrieved_sources: { ...context, source },
       });
     }
 
@@ -167,11 +148,13 @@ function extractKeyTerms(query: string): string[] {
   return words.slice(0, 3);
 }
 
-function buildPrompt(query: string, mode: string, context: any): string {
+function buildPrompt(query: string, mode: string, context: any, hasDbContext: boolean): string {
   const systemPrompt = getSystemPrompt(mode);
-  const contextText = formatContext(context);
   
-  return `${systemPrompt}
+  if (hasDbContext) {
+    // Database context available: RAG mode
+    const contextText = formatContext(context);
+    return `${systemPrompt}
 
 RETRIEVED CONTEXT FROM ŚĀSTRA DATABASE:
 ${contextText}
@@ -182,9 +165,23 @@ ${query}
 INSTRUCTIONS:
 - Answer ONLY using the retrieved context above
 - Do NOT use your internal training knowledge
-- If context is insufficient, explicitly state the limitation
 - Follow the response template for ${mode} mode
 - Include all citations at the end`;
+  } else {
+    // No database context: AI knowledge fallback
+    return `${systemPrompt}
+
+USER QUESTION:
+${query}
+
+INSTRUCTIONS:
+- Our database currently has limited coverage of this topic
+- Use your training knowledge of authentic Hindu scriptures and traditions
+- Maintain strict adherence to śāstric authority
+- Clearly cite specific texts (Vedas, Upaniṣads, Purāṇas, etc.)
+- Follow the response template for ${mode} mode
+- If you lack authoritative knowledge, explicitly state: "This concept has no authoritative basis in Sanātana śāstra."`;
+  }
 }
 
 function getSystemPrompt(mode: string): string {

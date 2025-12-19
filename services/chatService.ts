@@ -22,6 +22,7 @@ export interface ChatResponse {
   response: string;
   citations: Citation[];
   mode: QueryMode;
+  source?: 'database' | 'ai_training';
 }
 
 export async function sendChatQuery(

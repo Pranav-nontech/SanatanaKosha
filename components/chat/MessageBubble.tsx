@@ -27,9 +27,22 @@ export function MessageBubble({ message, isUser, citations, mode }: MessageBubbl
 
       <View style={[styles.bubble, isUser ? styles.userBubble : styles.botBubble]}>
         <Text style={[styles.messageText, isUser ? styles.userText : styles.botText]}>
-          {message}
+          {message.replace(/🔹 \*\*Source: Database\*\*\n\n|🔸 \*\*Source: AI Training\*\*\n\n/g, '')}
         </Text>
       </View>
+
+      {!isUser && (message.includes('🔹') || message.includes('🔸')) && (
+        <View style={styles.sourceIndicator}>
+          <MaterialCommunityIcons
+            name={message.includes('🔹') ? 'database' : 'brain'}
+            size={12}
+            color={message.includes('🔹') ? colors.light.success : colors.light.accent}
+          />
+          <Text style={styles.sourceText}>
+            {message.includes('🔹') ? 'From Śāstra Database' : 'From AI Training'}
+          </Text>
+        </View>
+      )}
 
       {citations && citations.length > 0 && (
         <View style={styles.citationsContainer}>
@@ -148,5 +161,17 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.regular,
     color: colors.light.textSecondary,
     fontStyle: 'italic',
+  },
+  sourceIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  sourceText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.light.textTertiary,
+    marginLeft: spacing.xs,
   },
 });
